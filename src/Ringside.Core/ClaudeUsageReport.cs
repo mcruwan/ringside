@@ -25,6 +25,9 @@ public sealed class ClaudeUsageReport
 
     public sealed record Limit(string Label, double Percent, DateTimeOffset? ResetsAt);
 
+    /// <summary>The row for extra usage: how much of the month's extra-usage budget is spent.</summary>
+    public const string ExtraLabel = "Extra";
+
     /// <summary>One answer: the limits, when Claude Code got them, and the organization it is signed in to.</summary>
     public sealed record Answer(IReadOnlyList<Limit> Limits, DateTimeOffset AsOf, string Org)
     {
@@ -34,7 +37,7 @@ public sealed class ClaudeUsageReport
             {
                 bool lapsed = l.ResetsAt is { } r && now >= r;
                 yield return new LimitWindow(l.Label, lapsed ? 0 : l.Percent, l.ResetsAt,
-                    l.ResetsAt is null ? ResetKind.None : ResetKind.Exact, lapsed);
+                    l.ResetsAt is null ? ResetKind.None : ResetKind.Exact, lapsed) { Aside = l.Label == ExtraLabel };
             }
         }
     }
@@ -205,6 +208,12 @@ public sealed class ClaudeUsageReport
                         w.TryGetProperty("utilization", out var pct) && pct.ValueKind == JsonValueKind.Number)
                         limits.Add(new Limit(label, pct.GetDouble(), Time(w, "resets_at")));
             }
+            // Extra usage, where the account has it turned on: the share of its monthly budget spent.
+            if (u.TryGetProperty("extra_usage", out var extra) && extra.ValueKind == JsonValueKind.Object &&
+                extra.TryGetProperty("is_enabled", out var on) && on.ValueKind == JsonValueKind.True &&
+                extra.TryGetProperty("utilization", out var spent) && spent.ValueKind == JsonValueKind.Number &&
+                limits.All(l => l.Label != ExtraLabel))
+                limits.Add(new Limit(ExtraLabel, spent.GetDouble(), null));
             return limits.Count == 0 ? null
                 : new Answer(limits, DateTimeOffset.FromUnixTimeMilliseconds((long)at.GetDouble()), org);
         }

@@ -53,7 +53,7 @@ public sealed class ClaudeSource
 
     public string Provider => _provider;
 
-    sealed record Sample(DateTimeOffset T, string Org, double? FiveHour, double? Weekly);
+    sealed record Sample(DateTimeOffset T, string Org, double? FiveHour, double? Weekly, double? Extra);
     sealed record Reading(IReadOnlyList<LimitWindow> Windows, DateTimeOffset AsOf);
 
     List<Sample> _samples = new();
@@ -83,6 +83,12 @@ public sealed class ClaudeSource
     /// </summary>
     public bool AskClaudeCode { get; set; }
 
+    /// <summary>
+    /// Also show extra usage as a row ("Extra": the share of the month's extra-usage budget spent),
+    /// for an account that has it. The Claude app's log records it; so does the usage report.
+    /// </summary>
+    public bool ShowExtraUsage { get; set; }
+
     /// <summary>Has the usage report asked for again at the next read (a manual refresh).</summary>
     public void AskSoon(DateTimeOffset now) => _usage?.AskSoon(now);
 
@@ -107,6 +113,9 @@ public sealed class ClaudeSource
         }
         // A limit for one model comes only from the usage report, whichever source leads.
         var scoped = report?.Windows.Where(w => !ClaudeUsageReport.IsPlanWindow(w.Label)).ToList() ?? new List<LimitWindow>();
+        scoped.RemoveAll(w => w.Label == ClaudeUsageReport.ExtraLabel && !ShowExtraUsage);
+        if (ShowExtraUsage && scoped.All(w => w.Label != ClaudeUsageReport.ExtraLabel) && LogExtra() is double spent)
+            scoped.Add(new LimitWindow(ClaudeUsageReport.ExtraLabel, spent, null, ResetKind.None, false) { Aside = true });
 
         if (desktop is null && feed is null && scoped.Count == 0)
             return Snapshot.Empty(_provider, IsDefaultAccount
@@ -114,7 +123,8 @@ public sealed class ClaudeSource
                 : $"Waiting for {_provider}: its Claude app or Claude Code", DesktopText);
 
         if (desktop is null && feed is null)
-            return new Snapshot(_provider, null, scoped, report!.AsOf, TimeSpan.FromMinutes(60), null, ReportText);
+            return new Snapshot(_provider, null, scoped, report?.AsOf ?? _samples[^1].T, TimeSpan.FromMinutes(60), null,
+                report is null ? DesktopText : ReportText);
 
         if (feed is not null && (desktop is null || feed.AsOf >= desktop.AsOf))
             return new Snapshot(_provider, null, feed.Windows.Concat(scoped).ToList(), feed.AsOf, TimeSpan.FromMinutes(60), null, exactText);
@@ -217,13 +227,14 @@ public sealed class ClaudeSource
             if (!e.TryGetProperty("t", out var t) || t.ValueKind != JsonValueKind.Number) continue;
             long ms = t.TryGetInt64(out var l) ? l : (long)t.GetDouble();
             string org = e.TryGetProperty("org", out var o) && o.ValueKind == JsonValueKind.String ? o.GetString()! : "";
-            double? fh = null, sd = null;
+            double? fh = null, sd = null, xu = null;
             if (e.TryGetProperty("u", out var u) && u.ValueKind == JsonValueKind.Object)
             {
                 if (u.TryGetProperty("fh", out var f) && f.ValueKind == JsonValueKind.Number) fh = f.GetDouble();
                 if (u.TryGetProperty("sd", out var d) && d.ValueKind == JsonValueKind.Number) sd = d.GetDouble();
+                if (u.TryGetProperty("xu", out var x) && x.ValueKind == JsonValueKind.Number) xu = x.GetDouble();
             }
-            list.Add(new Sample(DateTimeOffset.FromUnixTimeMilliseconds(ms), org, fh, sd));
+            list.Add(new Sample(DateTimeOffset.FromUnixTimeMilliseconds(ms), org, fh, sd, xu));
         }
         list.Sort((a, b) => a.T.CompareTo(b.T));
         return list;
@@ -245,6 +256,22 @@ public sealed class ClaudeSource
             windows.Add(FiveHour(fh, now));
         if (latest.Weekly is double w) windows.Add(new LimitWindow("Weekly", w, null, ResetKind.None, false));
         return windows.Count == 0 ? null : new Reading(windows, latest.T);
+    }
+
+    // Extra usage as the app last logged it for this account. One reading that leaves it out does
+    // not take the row away; a day of readings without it does.
+    double? LogExtra()
+    {
+        if (_samples.Count == 0) return null;
+        var latest = _samples[^1];
+        for (int i = _samples.Count - 1; i >= 0; i--)
+        {
+            var x = _samples[i];
+            if (x.Org != latest.Org) continue;
+            if (latest.T - x.T > TimeSpan.FromHours(24)) break;
+            if (x.Extra is double v) return v;
+        }
+        return null;
     }
 
     // Usage only rises inside one 5-hour window, so the current window began just after

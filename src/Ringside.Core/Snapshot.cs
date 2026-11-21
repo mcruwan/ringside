@@ -7,7 +7,14 @@ namespace Ringside;
 
 public enum ResetKind { None, Exact, Estimate, UpperBound }
 
-public sealed record LimitWindow(string Label, double Percent, DateTimeOffset? ResetsAt, ResetKind Kind, bool Lapsed);
+public sealed record LimitWindow(string Label, double Percent, DateTimeOffset? ResetsAt, ResetKind Kind, bool Lapsed)
+{
+    /// <summary>
+    /// A row worth showing that is not a limit closing in on you (extra usage, for one): never the
+    /// main gauge while a real limit is there, and it raises no alerts.
+    /// </summary>
+    public bool Aside { get; init; }
+}
 
 public sealed record Snapshot(
     string Provider,
@@ -19,7 +26,8 @@ public sealed record Snapshot(
     string Source)
 {
     // The window closest to blocking you is the one worth a glance.
-    public LimitWindow? Primary => Windows.OrderByDescending(w => w.Percent).FirstOrDefault();
+    public LimitWindow? Primary =>
+        Windows.Where(w => !w.Aside).OrderByDescending(w => w.Percent).FirstOrDefault() ?? Windows.FirstOrDefault();
 
     /// <summary>The window the big gauge shows: the tightest one, or the one the user pinned.</summary>
     public LimitWindow? Pick(FocusWindow focus) => focus switch

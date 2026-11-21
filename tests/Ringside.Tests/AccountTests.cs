@@ -308,6 +308,57 @@ public sealed class ModelLimitTests : System.IDisposable
     }
 
     [Fact]
+    public void Extra_usage_is_a_row_but_never_the_main_gauge()
+    {
+        Assert.False(new Settings().ExtraUsage);
+        var now = System.DateTimeOffset.UtcNow;
+        var (log, feed) = Files(now, """{"sd":40,"xu":51.3}""");
+        Assert.Equal(new[] { "Weekly" }, new ClaudeSource(log, feed).Read(now).Windows.Select(w => w.Label));
+
+        var s = new ClaudeSource(log, feed) { ShowExtraUsage = true }.Read(now);
+        Assert.Equal(new[] { "Weekly", "Extra" }, s.Windows.Select(w => w.Label));
+        var extra = s.Windows.Single(w => w.Label == "Extra");
+        Assert.Equal(51.3, extra.Percent);
+        Assert.True(extra.Aside);
+        // Higher than the weekly limit, and still the weekly limit leads.
+        Assert.Equal("Weekly", s.Primary!.Label);
+        Assert.Equal("Weekly", s.Pick(FocusWindow.Tightest)!.Label);
+
+        // It raises no alert however full it gets.
+        var alerts = new Alerts();
+        var history = new UsageHistory();
+        var settings = new Settings();
+        Assert.Empty(alerts.Evaluate(s, settings, history, now));
+        var full = s with { Windows = s.Windows.Select(w => w.Aside ? w with { Percent = 100 } : w).ToList() };
+        Assert.Empty(alerts.Evaluate(full, settings, history, now));
+    }
+
+    [Fact]
+    public void Extra_usage_survives_one_reading_without_it_and_an_account_without_it_shows_none()
+    {
+        var now = System.DateTimeOffset.UtcNow;
+        long Ms(double hoursAgo) => now.AddHours(-hoursAgo).ToUnixTimeMilliseconds();
+        var log = Path.Combine(_dir, "plan-usage-history.json");
+        var none = Path.Combine(_dir, "none.json");
+        File.WriteAllText(log, $$$"""{"samples":[{"t":{{{Ms(3)}}},"org":"a","u":{"sd":71,"xu":51.3}},{"t":{{{Ms(1)}}},"org":"a","u":{"sd":84}}]}""");
+        Assert.Equal(new[] { "Weekly", "Extra" }, new ClaudeSource(log, none) { ShowExtraUsage = true }.Read(now).Windows.Select(w => w.Label));
+
+        File.WriteAllText(log, $$$"""{"samples":[{"t":{{{Ms(60)}}},"org":"a","u":{"sd":71,"xu":51.3}},{"t":{{{Ms(1)}}},"org":"a","u":{"fh":5,"sd":30}}]}""");
+        Assert.Equal(new[] { "5-hour", "Weekly" }, new ClaudeSource(log, none) { ShowExtraUsage = true }.Read(now).Windows.Select(w => w.Label));
+    }
+
+    [Fact]
+    public void The_usage_report_gives_extra_usage_only_where_it_is_on()
+    {
+        string With(string extra) => State(System.DateTimeOffset.UtcNow, Week).Replace("\"limits\":", "\"extra_usage\":" + extra + ",\"limits\":");
+        var on = ClaudeUsageReport.Parse(With("""{"is_enabled":true,"monthly_limit":5000,"used_credits":2566,"utilization":51.32}"""))!;
+        Assert.Equal(new[] { "Weekly", "Extra" }, on.Limits.Select(l => l.Label));
+        Assert.True(on.Windows(System.DateTimeOffset.UtcNow).Single(w => w.Label == "Extra").Aside);
+        var off = ClaudeUsageReport.Parse(With("""{"is_enabled":false,"monthly_limit":null,"used_credits":null,"utilization":null}"""))!;
+        Assert.Equal(new[] { "Weekly" }, off.Limits.Select(l => l.Label));
+    }
+
+    [Fact]
     public void A_report_from_another_account_stays_off_the_meter()
     {
         var now = System.DateTimeOffset.UtcNow;

@@ -70,6 +70,12 @@ public sealed class Settings
     /// account shown: no chat, no tokens, and Ringside still never sees a login.
     /// </summary>
     public bool ModelLimits { get; set; }
+
+    /// <summary>
+    /// Extra usage as one more row on a Claude meter, for an account that has it (off until turned
+    /// on): how much of the month's extra-usage budget is spent. Never the main gauge, no alerts.
+    /// </summary>
+    public bool ExtraUsage { get; set; }
     public double Scale { get; set; } = 1.0;
     public double Opacity { get; set; } = 1.0;
 

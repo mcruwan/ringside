@@ -81,6 +81,7 @@ public sealed class Alerts
         var fill = settings.Fill;
         foreach (var w in s.Windows)
         {
+            if (w.Aside) continue;
             string key = s.Provider + "|" + w.Label;
             bool known = _seen.TryGetValue(key, out double prev);
             _seen[key] = w.Percent;

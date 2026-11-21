@@ -221,6 +221,8 @@ public sealed class Controller : IHost
             _claude.RequireTaggedFeed = work is not null;
             _claude.AskClaudeCode = _s.ModelLimits && _s.ShowClaude;
             if (work is not null) work.AskClaudeCode = _s.ModelLimits;
+            _claude.ShowExtraUsage = _s.ExtraUsage;
+            if (work is not null) work.ShowExtraUsage = _s.ExtraUsage;
             var (claude, codex, claudeWork) = await Task.Run(() => (_claude.Read(now), _codex.Read(now), work?.Read(now)));
             var reading = new Reading(claude, codex, now, new Dictionary<string, DateTimeOffset?>()) { ClaudeWork = claudeWork };
             foreach (var snap in reading.All()) _history.Record(snap, now);
@@ -446,6 +448,7 @@ public sealed class Controller : IHost
             Item("Left (drains like a tank)", () => Change(s => s.Fill = FillMode.Left), _s.Fill == FillMode.Left, true)));
         menu.Add(Item("Second Claude account (Claude Work)", () => Change(s => s.ShowClaudeWork = !s.ShowClaudeWork), _s.ShowClaudeWork));
         menu.Add(Item("Limits for one model, such as Fable (asks Claude Code)", () => { Change(s => s.ModelLimits = !s.ModelLimits); _ = RefreshAsync(); }, _s.ModelLimits));
+        menu.Add(Item("Extra usage, where a Claude account has it", () => { Change(s => s.ExtraUsage = !s.ExtraUsage); _ = RefreshAsync(); }, _s.ExtraUsage));
         if (_s.ShowClaude && _s.ShowCodex)
             menu.Add(Item(_s.Split ? "Combine into one" : "Split apart", () => ToggleSplit()));
         menu.Add(Item("Keep on top", () => Change(s => s.Topmost = !s.Topmost), _s.Topmost));
