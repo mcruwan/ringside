@@ -86,12 +86,36 @@ public sealed class RingGauge : GaugeBase
 /// <summary>A horizontal gauge: a rounded track with a gradient fill from the left.</summary>
 public sealed class BarGauge : GaugeBase
 {
+    public static readonly StyledProperty<double> BlockedProperty =
+        AvaloniaProperty.Register<BarGauge, double>(nameof(Blocked));
+
+    static BarGauge()
+    {
+        AffectsRender<BarGauge>(BlockedProperty);
+    }
+
+    /// <summary>
+    /// How much of the bar's far end, in percent, is out of reach (a model's allowance the week
+    /// has no room for). Drawn striped, so it reads as closed off, not as room still free.
+    /// </summary>
+    public double Blocked { get => GetValue(BlockedProperty); set => SetValue(BlockedProperty, value); }
+
+    static readonly IPen Stripe = new Pen(new SolidColorBrush(Color.Parse("#70FFFFFF")), 1);
+
     public override void Render(DrawingContext ctx)
     {
         double h = Math.Min(Thickness, Bounds.Height), w = Bounds.Width;
         if (w <= 0 || h <= 0) return;
         double y = (Bounds.Height - h) / 2, rad = h / 2;
         if (Track is { } track) ctx.DrawRectangle(track, null, new RoundedRect(new Rect(0, y, w, h), rad));
+        double blocked = Math.Clamp(Blocked, 0, 100);
+        if (blocked >= 0.5)
+        {
+            double bw = Math.Max(h, w * blocked / 100);
+            using (ctx.PushClip(new RoundedRect(new Rect(w - bw, y, bw, h), rad)))
+                for (double x = w - bw - h; x < w + h; x += 3)
+                    ctx.DrawLine(Stripe, new Point(x, y + h), new Point(x + h, y));
+        }
         double v = Math.Clamp(Value, 0, 100);
         if (v < 0.05) return;
         double fw = Math.Max(h, w * v / 100);
