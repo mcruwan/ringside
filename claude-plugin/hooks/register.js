@@ -24,9 +24,8 @@ function feedFile(configDir, home) {
   return !slug || slug === 'claude' ? plain : `claude-statusline-${slug}.json`
 }
 
-async function feedPath($) {
+async function feedPath($, file) {
   const home = await $.env.get('HOME')
-  const file = feedFile(await $.env.get('CLAUDE_CONFIG_DIR'), home)
   const custom = await $.env.get('RINGSIDE_DATA')
   if (custom) return `${custom}/${file}`
   const appData = await $.env.get('APPDATA')
@@ -53,8 +52,11 @@ async function publish($, rateLimits) {
   if (shape === last && now - lastAt < 60_000) return
   last = shape
   lastAt = now
-  const path = await feedPath($)
-  if (path) await $.fs.write(path, JSON.stringify({ updated: Math.floor(now / 1000), ...windows }))
+  // "feed" names the file this reading is for, so Ringside can turn away readings that an older
+  // copy of this mod, still loaded somewhere, writes to the wrong account's file.
+  const file = feedFile(await $.env.get('CLAUDE_CONFIG_DIR'), await $.env.get('HOME'))
+  const path = await feedPath($, file)
+  if (path) await $.fs.write(path, JSON.stringify({ updated: Math.floor(now / 1000), feed: file, ...windows }))
 }
 
 export function register(on) {

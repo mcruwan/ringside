@@ -208,6 +208,8 @@ public sealed class Controller : IHost
         {
             var now = DateTimeOffset.Now;
             var work = ClaudeWorkSource();
+            // With two accounts, the original feed file trusts only readings that name it.
+            _claude.RequireTaggedFeed = work is not null;
             var (claude, codex, claudeWork) = await Task.Run(() => (_claude.Read(now), _codex.Read(now), work?.Read(now)));
             var reading = new Reading(claude, codex, now, new Dictionary<string, DateTimeOffset?>()) { ClaudeWork = claudeWork };
             foreach (var snap in reading.All()) _history.Record(snap, now);

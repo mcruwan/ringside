@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using Xunit;
 
 namespace Ringside.Tests;
@@ -75,5 +76,78 @@ public sealed class AccountTests
     {
         var s = Settings.Parse("""{"Version":2,"OnboardingDone":true,"ShowClaude":true,"ShowCodex":true}""");
         Assert.False(s.ShowClaudeWork);
+    }
+}
+
+/// <summary>Readings name the feed file they were meant for; the original file can insist on it.</summary>
+public sealed class TaggedFeedTests : System.IDisposable
+{
+    readonly string _dir = Path.Combine(Path.GetTempPath(), "ringside-tests-" + System.Guid.NewGuid().ToString("N"));
+
+    public TaggedFeedTests() => Directory.CreateDirectory(_dir);
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_dir, recursive: true); } catch (IOException) { }
+    }
+
+    static long Ms(System.DateTimeOffset t) => t.ToUnixTimeMilliseconds();
+
+    (string Log, string Feed) Files(System.DateTimeOffset now, string? tag)
+    {
+        var log = Path.Combine(_dir, "plan-usage-history.json");
+        File.WriteAllText(log, $$$"""{"samples":[{"t":{{{Ms(now.AddMinutes(-20))}}},"org":"a","u":{"fh":30,"sd":85}}]}""");
+        var feed = Path.Combine(_dir, "claude-statusline.json");
+        string tagPart = tag is null ? "" : $"\"feed\":\"{tag}\",";
+        File.WriteAllText(feed, $$$"""{"updated":{{{now.AddMinutes(-1).ToUnixTimeSeconds()}}},{{{tagPart}}}"five_hour":{"used_percentage":13},"seven_day":{"used_percentage":31}}""");
+        return (log, feed);
+    }
+
+    [Fact]
+    public void One_account_still_takes_untagged_readings()
+    {
+        var now = System.DateTimeOffset.UtcNow;
+        var (log, feed) = Files(now, null);
+        var s = new ClaudeSource(log, feed).Read(now);
+        Assert.Equal(ClaudeSource.FeedText, s.Source);
+    }
+
+    [Fact]
+    public void With_two_accounts_an_untagged_reading_is_turned_away()
+    {
+        var now = System.DateTimeOffset.UtcNow;
+        var (log, feed) = Files(now, null);
+        var s = new ClaudeSource(log, feed) { RequireTaggedFeed = true }.Read(now);
+        Assert.Equal(ClaudeSource.DesktopText, s.Source);
+        Assert.Equal(30, s.Windows.Single(w => w.Label == "5-hour").Percent);
+    }
+
+    [Fact]
+    public void With_two_accounts_a_reading_tagged_for_this_file_is_taken()
+    {
+        var now = System.DateTimeOffset.UtcNow;
+        var (log, feed) = Files(now, StatusLineBridge.DefaultFeedFile);
+        var s = new ClaudeSource(log, feed) { RequireTaggedFeed = true }.Read(now);
+        Assert.Equal(ClaudeSource.FeedText, s.Source);
+        Assert.Equal(13, s.Windows.Single(w => w.Label == "5-hour").Percent);
+    }
+
+    [Fact]
+    public void A_reading_tagged_for_another_file_is_never_taken()
+    {
+        var now = System.DateTimeOffset.UtcNow;
+        var (log, feed) = Files(now, "claude-statusline-claude-company.json");
+        var s = new ClaudeSource(log, feed).Read(now);
+        Assert.Equal(ClaudeSource.DesktopText, s.Source);
+    }
+
+    [Fact]
+    public void The_plugin_tags_each_reading_with_its_file()
+    {
+        var root = Directory.GetCurrentDirectory();
+        while (root is not null && !File.Exists(Path.Combine(root, "claude-plugin", "hooks", "register.js")))
+            root = Path.GetDirectoryName(root);
+        var js = File.ReadAllText(Path.Combine(root!, "claude-plugin", "hooks", "register.js"));
+        Assert.Contains("feed: file", js);
     }
 }

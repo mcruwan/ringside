@@ -77,8 +77,12 @@ public static class StatusLineBridge
         if (outObj.Count == 1) return null;
 
         Directory.CreateDirectory(DataDir);
-        var path = Path.Combine(DataDir, FeedFileFor(Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR"),
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
+        string file = FeedFileFor(Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR"),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        // Names the file it was meant for, so a reading from an older writer that knew only one
+        // file can be told apart (see ClaudeSource.RequireTaggedFeed).
+        outObj["feed"] = file;
+        var path = Path.Combine(DataDir, file);
         var tmp = path + "." + Environment.ProcessId + ".tmp";
         File.WriteAllText(tmp, outObj.ToJsonString());
         File.Move(tmp, path, overwrite: true);

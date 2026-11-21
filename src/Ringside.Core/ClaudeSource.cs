@@ -272,11 +272,21 @@ public sealed class ClaudeSource
         }
     }
 
+    /// <summary>
+    /// With a second Claude account on, the original feed file takes only readings that name it
+    /// ("feed"). A plugin or bridge from before the split, still loaded in a Claude Code process
+    /// that started before it, writes every account's limits to that one file without the tag.
+    /// </summary>
+    public bool RequireTaggedFeed { get; set; }
+
     Reading? FromFeed(DateTimeOffset now)
     {
         if (_feed is null) return null;
         var root = _feed.RootElement;
         if (root.ValueKind != JsonValueKind.Object) return null;
+        bool tagged = root.TryGetProperty("feed", out var tag) && tag.ValueKind == JsonValueKind.String;
+        if (tagged && tag.GetString() != _feedFile) return null;
+        if (!tagged && RequireTaggedFeed) return null;
         if (!root.TryGetProperty("updated", out var up) || up.ValueKind != JsonValueKind.Number) return null;
         var asOf = DateTimeOffset.FromUnixTimeSeconds((long)up.GetDouble());
 
