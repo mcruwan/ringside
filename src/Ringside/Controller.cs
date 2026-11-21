@@ -200,6 +200,15 @@ public sealed class Controller : IHost
         return _claudeWork;
     }
 
+    /// <summary>A refresh the user asked for: Claude Code's usage report is asked for again too.</summary>
+    void RefreshNow()
+    {
+        var now = DateTimeOffset.Now;
+        _claude.AskSoon(now);
+        _claudeWork?.AskSoon(now);
+        _ = RefreshAsync();
+    }
+
     public async Task RefreshAsync()
     {
         if (_busy || _quitting) return;
@@ -210,6 +219,8 @@ public sealed class Controller : IHost
             var work = ClaudeWorkSource();
             // With two accounts, the original feed file trusts only readings that name it.
             _claude.RequireTaggedFeed = work is not null;
+            _claude.AskClaudeCode = _s.ModelLimits && _s.ShowClaude;
+            if (work is not null) work.AskClaudeCode = _s.ModelLimits;
             var (claude, codex, claudeWork) = await Task.Run(() => (_claude.Read(now), _codex.Read(now), work?.Read(now)));
             var reading = new Reading(claude, codex, now, new Dictionary<string, DateTimeOffset?>()) { ClaudeWork = claudeWork };
             foreach (var snap in reading.All()) _history.Record(snap, now);
@@ -372,7 +383,7 @@ public sealed class Controller : IHost
             ToggleTopmost: () => Change(s => s.Topmost = !s.Topmost),
             ToggleClickThrough: () => Change(s => s.ClickThrough = !s.ClickThrough),
             Settings: OpenSettings,
-            Refresh: () => _ = RefreshAsync(),
+            Refresh: RefreshNow,
             Hide: () => SetHidden(true),
             Restart: _updates.PendingVersion is not null || _updates.AvailableVersion is not null ? _updates.RestartNow : null,
             RestartLabel: _updates.PendingVersion is { } p ? $"Restart to update ({p})" : _updates.AvailableVersion is { } a ? $"Get version {a}" : null,
@@ -434,6 +445,7 @@ public sealed class Controller : IHost
             Item("Used (fills up)", () => Change(s => s.Fill = FillMode.Used), _s.Fill == FillMode.Used, true),
             Item("Left (drains like a tank)", () => Change(s => s.Fill = FillMode.Left), _s.Fill == FillMode.Left, true)));
         menu.Add(Item("Second Claude account (Claude Work)", () => Change(s => s.ShowClaudeWork = !s.ShowClaudeWork), _s.ShowClaudeWork));
+        menu.Add(Item("Limits for one model, such as Fable (asks Claude Code)", () => { Change(s => s.ModelLimits = !s.ModelLimits); _ = RefreshAsync(); }, _s.ModelLimits));
         if (_s.ShowClaude && _s.ShowCodex)
             menu.Add(Item(_s.Split ? "Combine into one" : "Split apart", () => ToggleSplit()));
         menu.Add(Item("Keep on top", () => Change(s => s.Topmost = !s.Topmost), _s.Topmost));
@@ -441,7 +453,7 @@ public sealed class Controller : IHost
             menu.Add(Item("Click-through", () => Change(s => s.ClickThrough = !s.ClickThrough), _s.ClickThrough));
         menu.Add(new NativeMenuItemSeparator());
         menu.Add(Item("Settings...", OpenSettings));
-        menu.Add(Item("Refresh now", () => _ = RefreshAsync()));
+        menu.Add(Item("Refresh now", RefreshNow));
         if (_updates?.PendingVersion is { } pending) menu.Add(Item($"Restart to update ({pending})", _updates.RestartNow));
         else if (_updates?.AvailableVersion is { } available) menu.Add(Item($"Get Ringside {available}", _updates.RestartNow));
         menu.Add(new NativeMenuItemSeparator());

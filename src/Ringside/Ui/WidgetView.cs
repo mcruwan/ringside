@@ -399,7 +399,7 @@ public sealed class WidgetView : UserControl
         Control BarRow(LimitWindow w, Reading r, Settings s)
         {
             var g = new Grid { ColumnDefinitions = new ColumnDefinitions("50,*,Auto"), Margin = new Thickness(0, 6, 0, 0) };
-            var label = new TextBlock { Text = w.Label, FontSize = 10.5, Foreground = Brand.Fg2Brush, VerticalAlignment = VerticalAlignment.Center };
+            var label = new TextBlock { Text = w.Label, FontSize = 10.5, Foreground = Brand.Fg2Brush, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             var bar = new BarGauge { Thickness = 4, Height = 8, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
             bar.SetColors(Palette.For(_p, w.Percent, s));
             bar.Value = Display.Shown(w.Percent, s.Fill);

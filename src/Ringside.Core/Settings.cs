@@ -63,6 +63,13 @@ public sealed class Settings
     public string ClaudeWorkAppFolder { get; set; } = "Claude-Company";
     /// <summary>Claude Code's config folder for that account, relative to the home folder or absolute.</summary>
     public string ClaudeWorkConfigDir { get; set; } = ".claude-company";
+
+    /// <summary>
+    /// Limits for a single model, such as the weekly "Fable" one (off until turned on). Only Claude
+    /// Code knows them, so Ringside runs its /usage command every ten minutes for each Claude
+    /// account shown: no chat, no tokens, and Ringside still never sees a login.
+    /// </summary>
+    public bool ModelLimits { get; set; }
     public double Scale { get; set; } = 1.0;
     public double Opacity { get; set; } = 1.0;
 

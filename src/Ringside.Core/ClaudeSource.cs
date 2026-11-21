@@ -10,7 +10,8 @@ namespace Ringside;
 /// Claude usage from two local files, never from your login:
 /// the Claude desktop app's own usage log (sampled every 15 minutes while the app is open),
 /// and, when connected, the limits Claude Code hands to its status line after each reply.
-/// The newer of the two wins.
+/// The newer of the two wins. When turned on, Claude Code's own usage report adds the limits
+/// neither file carries, such as the weekly one for a single model (see ClaudeUsageReport).
 /// </summary>
 public sealed class ClaudeSource
 {
@@ -21,6 +22,8 @@ public sealed class ClaudeSource
     internal const string StaleText = "Waiting for the Claude app to refresh its usage";
     internal const string FeedText =
         "From Claude Code's status line, which reports exact limits and reset times after each reply.";
+    internal const string ReportText =
+        "From Claude Code's own usage report (its /usage command), which Ringside asks for every 10 minutes.";
 
     readonly string? _logOverride;
     readonly string[]? _feedOverride;
@@ -30,6 +33,7 @@ public sealed class ClaudeSource
     string _provider = "Claude";
     string _appFolder = "Claude";
     string _feedFile = StatusLineBridge.DefaultFeedFile;
+    string? _configDir;
     bool IsDefaultAccount => _appFolder == "Claude" && _feedFile == StatusLineBridge.DefaultFeedFile;
 
     /// <summary>
@@ -43,6 +47,7 @@ public sealed class ClaudeSource
         s._provider = provider;
         s._appFolder = appFolder;
         s._feedFile = StatusLineBridge.FeedFileFor(configDir, Paths.Home);
+        s._configDir = s._feedFile == StatusLineBridge.DefaultFeedFile ? null : configDir;
         return s;
     }
 
@@ -72,20 +77,47 @@ public sealed class ClaudeSource
 
     public bool DesktopLogFound => ResolveLog(DateTimeOffset.Now) is not null;
 
+    /// <summary>
+    /// Also ask Claude Code for its usage report, for the limits the two files do not carry
+    /// (a single model's weekly limit). Off unless the user turns it on.
+    /// </summary>
+    public bool AskClaudeCode { get; set; }
+
+    /// <summary>Has the usage report asked for again at the next read (a manual refresh).</summary>
+    public void AskSoon(DateTimeOffset now) => _usage?.AskSoon(now);
+
+    ClaudeUsageReport? _usage;
+    internal ClaudeUsageReport Usage => _usage ??= new ClaudeUsageReport(_appFolder, _configDir);
+
     public Snapshot Read(DateTimeOffset now)
     {
         RefreshLog(now);
         RefreshFeed(now);
         var desktop = FromLog(now);
+        var report = FromReport(now);
         var feed = FromFeed(now);
 
-        if (desktop is null && feed is null)
+        // Two sources give exact numbers; the newer one speaks for the 5-hour and weekly limits.
+        string exactText = FeedText;
+        if (report is not null && (feed is null || report.AsOf > feed.AsOf))
+        {
+            feed = new Reading(report.Windows.Where(w => ClaudeUsageReport.IsPlanWindow(w.Label)).ToList(), report.AsOf);
+            exactText = ReportText;
+            if (feed.Windows.Count == 0) feed = null;
+        }
+        // A limit for one model comes only from the usage report, whichever source leads.
+        var scoped = report?.Windows.Where(w => !ClaudeUsageReport.IsPlanWindow(w.Label)).ToList() ?? new List<LimitWindow>();
+
+        if (desktop is null && feed is null && scoped.Count == 0)
             return Snapshot.Empty(_provider, IsDefaultAccount
                 ? "Waiting for the Claude app or Claude Code"
                 : $"Waiting for {_provider}: its Claude app or Claude Code", DesktopText);
 
+        if (desktop is null && feed is null)
+            return new Snapshot(_provider, null, scoped, report!.AsOf, TimeSpan.FromMinutes(60), null, ReportText);
+
         if (feed is not null && (desktop is null || feed.AsOf >= desktop.AsOf))
-            return new Snapshot(_provider, null, feed.Windows, feed.AsOf, TimeSpan.FromMinutes(60), null, FeedText);
+            return new Snapshot(_provider, null, feed.Windows.Concat(scoped).ToList(), feed.AsOf, TimeSpan.FromMinutes(60), null, exactText);
 
         var windows = desktop!.Windows.ToList();
         if (feed is not null)
@@ -106,7 +138,20 @@ public sealed class ClaudeSource
         // The Claude app only writes its log while its own usage card refreshes, which can be a day
         // apart. Say so, rather than showing an old number as if it were current.
         string? note = now - desktop.AsOf > TimeSpan.FromMinutes(35) ? StaleText : null;
+        windows.AddRange(scoped);
         return new Snapshot(_provider, null, windows, desktop.AsOf, TimeSpan.FromMinutes(35), note, DesktopText);
+    }
+
+    // ---- Claude Code's usage report (asked for, when turned on) --------------------------------
+
+    Reading? FromReport(DateTimeOffset now)
+    {
+        if (!AskClaudeCode) return null;
+        // The account the Claude app's log is for; the report counts only if Claude Code in this
+        // account's folder is signed in to the same one.
+        string org = _samples.Count > 0 ? _samples[^1].Org : "";
+        Usage.Poll(now, org);
+        return Usage.Latest(now, org) is { } answer ? new Reading(answer.Windows(now).ToList(), answer.AsOf) : null;
     }
 
     // ---- the Claude desktop app's usage log ------------------------------------------
@@ -193,7 +238,11 @@ public sealed class ClaudeSource
         var latest = mine[^1];
         var windows = new List<LimitWindow>();
         var fh = mine.Where(x => x.FiveHour.HasValue).ToList();
-        if (fh.Count > 0) windows.Add(FiveHour(fh, now));
+        // A plan with no 5-hour limit logs none. Samples left from when the account still had one
+        // must not keep an empty 5-hour row on the meter: the newest sample has to carry the limit,
+        // or follow one that did by less than a window (a single reading that left it out).
+        if (fh.Count > 0 && (latest.FiveHour.HasValue || latest.T - fh[^1].T < FiveHours))
+            windows.Add(FiveHour(fh, now));
         if (latest.Weekly is double w) windows.Add(new LimitWindow("Weekly", w, null, ResetKind.None, false));
         return windows.Count == 0 ? null : new Reading(windows, latest.T);
     }
