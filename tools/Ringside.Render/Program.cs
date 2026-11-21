@@ -37,10 +37,35 @@ static class Program
             .SetupWithoutStarting();
 
         if (what is "all" or "stills") Stills();
+        if (what is "all" or "stills" or "advice") Advice();
         if (what is "all" or "frames") Frames();
         if (what is "all" or "stills") Social();
         Console.WriteLine("rendered to " + _out);
         return 0;
+    }
+
+    // ---- two Claude accounts, each with a model that has its own share of the week --------
+
+    static void Advice()
+    {
+        Snapshot Account(string name, double? fiveHour, double weekly, double model, double hoursLeft)
+        {
+            var reset = Now.AddHours(hoursLeft);
+            var windows = new List<LimitWindow>();
+            if (fiveHour is double f) windows.Add(new LimitWindow("5-hour", f, Now.AddHours(3).AddMinutes(20), ResetKind.Exact, false));
+            windows.Add(new LimitWindow("Weekly", weekly, reset, ResetKind.Exact, false));
+            windows.Add(new LimitWindow("Fable", model, reset, ResetKind.Exact, false) { ShareOfWeek = 50 });
+            return new Snapshot(name, null, windows, Now.AddMinutes(-1), TimeSpan.FromMinutes(60), null, "");
+        }
+        Reading Two(Snapshot claude, Snapshot work) =>
+            Reading.Sample(Now) with { Claude = claude, ClaudeWork = work };
+        var look = Look(s => s.ShowClaudeWork = true);
+        var providers = new[] { "Claude", Settings.ClaudeWorkName };
+
+        // The week nearly gone on one account, the model barely touched on the other.
+        Save("model-advice", Desk(Widget(look, Two(Account("Claude", null, 87, 58, 45), Account(Settings.ClaudeWorkName, 7, 34, 8, 29)), providers)));
+        // Keeping up with the week, and used up.
+        Save("model-advice-calm", Desk(Widget(look, Two(Account("Claude", 22, 40, 50, 84), Account(Settings.ClaudeWorkName, 60, 71, 100, 60)), providers)));
     }
 
     // ---- stills -----------------------------------------------------------------------

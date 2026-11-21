@@ -23,7 +23,8 @@ public sealed class ClaudeUsageReport
     public static readonly TimeSpan GoodFor = TimeSpan.FromMinutes(60);
     static readonly TimeSpan RunLimit = TimeSpan.FromSeconds(45);
 
-    public sealed record Limit(string Label, double Percent, DateTimeOffset? ResetsAt);
+    /// <param name="ShareOfWeek">For one model's limit: its allowance as a percent of the weekly limit.</param>
+    public sealed record Limit(string Label, double Percent, DateTimeOffset? ResetsAt, double? ShareOfWeek = null);
 
     /// <summary>The row for extra usage: how much of the month's extra-usage budget is spent.</summary>
     public const string ExtraLabel = "Extra";
@@ -37,7 +38,7 @@ public sealed class ClaudeUsageReport
             {
                 bool lapsed = l.ResetsAt is { } r && now >= r;
                 yield return new LimitWindow(l.Label, lapsed ? 0 : l.Percent, l.ResetsAt,
-                    l.ResetsAt is null ? ResetKind.None : ResetKind.Exact, lapsed) { Aside = l.Label == ExtraLabel };
+                    l.ResetsAt is null ? ResetKind.None : ResetKind.Exact, lapsed) { Aside = l.Label == ExtraLabel, ShareOfWeek = l.ShareOfWeek };
             }
         }
     }
@@ -183,11 +184,23 @@ public sealed class ClaudeUsageReport
             if (!cache.TryGetProperty("fetchedAtMs", out var at) || at.ValueKind != JsonValueKind.Number) return null;
             if (!cache.TryGetProperty("utilization", out var u) || u.ValueKind != JsonValueKind.Object) return null;
 
+            // How much of the week each model's limit may take, by its place in "limits".
+            var shares = new Dictionary<int, double>();
+            if (u.TryGetProperty("weekly_scoped_shares", out var sh) && sh.ValueKind == JsonValueKind.Array)
+                foreach (var e in sh.EnumerateArray())
+                    if (e.ValueKind == JsonValueKind.Object &&
+                        e.TryGetProperty("limit_index", out var ix) && ix.ValueKind == JsonValueKind.Number &&
+                        e.TryGetProperty("allowance_percent_of_weekly", out var al) && al.ValueKind == JsonValueKind.Number &&
+                        al.GetDouble() > 0)
+                        shares[(int)ix.GetDouble()] = al.GetDouble();
+
             var limits = new List<Limit>();
             if (u.TryGetProperty("limits", out var arr) && arr.ValueKind == JsonValueKind.Array)
             {
+                int index = -1;
                 foreach (var e in arr.EnumerateArray())
                 {
+                    index++;
                     if (e.ValueKind != JsonValueKind.Object) continue;
                     if (!e.TryGetProperty("percent", out var pct) || pct.ValueKind != JsonValueKind.Number) continue;
                     string? label = Text(e, "kind") switch
@@ -197,7 +210,8 @@ public sealed class ClaudeUsageReport
                         _ => ScopeName(e),
                     };
                     if (label is null || limits.Any(l => l.Label == label)) continue;
-                    limits.Add(new Limit(label, pct.GetDouble(), Time(e, "resets_at")));
+                    limits.Add(new Limit(label, pct.GetDouble(), Time(e, "resets_at"),
+                        IsPlanWindow(label) ? null : shares.TryGetValue(index, out var share) ? share : null));
                 }
             }
             else
