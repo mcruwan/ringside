@@ -414,24 +414,19 @@ public sealed class ModelAdviceTests
     {
         // 87% of the week used, Fable 58% of its half: 13 left in the week, 21 in Fable's share.
         var a = Of(weekly: 87, model: 58, gone: 73);
-        Assert.Equal(ModelCall.Only, a.Call);
-        Assert.Equal("26% left · Fable only from here", a.Line);
+        Assert.Equal(ModelCall.UseNow, a.Call);
+        Assert.Equal("Use Fable now", a.Short);
         Assert.Equal(13, a.Usable, 3);
-        Assert.Equal(26, a.LeftToUse, 3);   // of Fable's own allowance
-        Assert.Equal(16, a.Lost, 3);        // 42% of it is left, 26% can be reached
         Assert.Contains("13% of the week is left", a.Reason);
-        Assert.Contains("16% of Fable is out of reach", a.Reason);
     }
 
     [Fact]
-    public void A_model_behind_the_clock_has_plenty_left()
+    public void A_model_behind_the_clock_should_be_used_now()
     {
         // 34% of the week used, Fable 8% of its half, 83% of the week gone.
         var a = Of(weekly: 34, model: 8, gone: 83);
-        Assert.Equal(ModelCall.Plenty, a.Call);
-        Assert.Equal("92% left · use Fable freely", a.Line);
+        Assert.Equal(ModelCall.UseNow, a.Call);
         Assert.Equal(46, a.Usable, 3);
-        Assert.Equal(0, a.Lost, 3);
         Assert.Contains("behind the week", a.Reason);
     }
 
@@ -440,26 +435,13 @@ public sealed class ModelAdviceTests
     {
         var a = Of(weekly: 40, model: 50, gone: 50);
         Assert.Equal(ModelCall.OnPace, a.Call);
-        Assert.Equal("50% left · on pace, for hard work", a.Line);
+        Assert.Equal("On pace", a.Short);
         Assert.Equal(25, a.Usable, 3);
-        // A few points behind is still on pace; clearly behind is plenty.
+        // A few points behind is still on pace; clearly behind is not.
         Assert.Equal(ModelCall.OnPace, Of(weekly: 40, model: 46, gone: 50).Call);
-        Assert.Equal(ModelCall.Plenty, Of(weekly: 40, model: 44, gone: 50).Call);
-        // Ahead of the clock is on pace too, and the very start of a week is not "plenty" yet.
-        Assert.Equal(ModelCall.OnPace, Of(weekly: 45, model: 80, gone: 50).Call);
+        Assert.Equal(ModelCall.UseNow, Of(weekly: 40, model: 44, gone: 50).Call);
+        // At the very start of a week nothing is behind yet.
         Assert.Equal(ModelCall.OnPace, Of(weekly: 0, model: 0, gone: 2).Call);
-    }
-
-    [Fact]
-    public void Other_models_filling_the_week_put_part_of_the_model_out_of_reach()
-    {
-        // Nothing of Fable used, but other models took 70% of the week: 30 of its 50 can be reached.
-        var a = Of(weekly: 70, model: 0, gone: 60);
-        Assert.Equal(ModelCall.Only, a.Call);
-        Assert.Equal(60, a.LeftToUse, 3);
-        Assert.Equal(40, a.Lost, 3);
-        // While the week still has more room than Fable needs, nothing is out of reach.
-        Assert.Equal(0, Of(weekly: 40, model: 0, gone: 60).Lost, 3);
     }
 
     [Fact]
@@ -467,12 +449,11 @@ public sealed class ModelAdviceTests
     {
         var gone = Of(weekly: 60, model: 100, gone: 50);
         Assert.Equal(ModelCall.Done, gone.Call);
-        Assert.StartsWith("Fable used up until ", gone.Line);
+        Assert.Equal("Fable used up", gone.Short);
         var week = Of(weekly: 100, model: 40, gone: 50);
         Assert.Equal(ModelCall.Done, week.Call);
-        Assert.StartsWith("Week used up until ", week.Line);
+        Assert.Equal("Week used up", week.Short);
         Assert.Equal(0, week.Usable);
-        Assert.Equal(60, week.Lost, 3);
     }
 
     [Fact]

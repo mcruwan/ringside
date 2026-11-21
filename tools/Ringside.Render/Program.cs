@@ -65,10 +65,7 @@ static class Program
         // The week nearly gone on one account, the model barely touched on the other.
         Save("model-advice", Desk(Widget(look, Two(Account("Claude", null, 87, 58, 45), Account(Settings.ClaudeWorkName, 7, 34, 8, 29)), providers)));
         // Keeping up with the week, and used up.
-        Save("model-advice-calm", Desk(Widget(look, Two(Account("Claude", 22, 60, 50, 84), Account(Settings.ClaudeWorkName, 60, 71, 100, 60)), providers)));
-        // The same first pair with bars that drain.
-        Save("model-advice-left", Desk(Widget(Look(s => { s.ShowClaudeWork = true; s.Fill = FillMode.Left; }),
-            Two(Account("Claude", null, 87, 58, 45), Account(Settings.ClaudeWorkName, 7, 34, 8, 29)), providers)));
+        Save("model-advice-calm", Desk(Widget(look, Two(Account("Claude", 22, 40, 50, 84), Account(Settings.ClaudeWorkName, 60, 71, 100, 60)), providers)));
     }
 
     // ---- stills -----------------------------------------------------------------------

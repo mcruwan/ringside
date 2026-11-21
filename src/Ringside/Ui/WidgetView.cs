@@ -229,7 +229,7 @@ public sealed class WidgetView : UserControl
         if (snap.Windows.Count == 0) sb.Append(snap.Note ?? "No data yet").Append('\n');
         foreach (var w in snap.Windows) sb.Append(Display.Line(w, r.Now, s)).Append('\n');
         foreach (var w in snap.Windows)
-            if (ModelAdvice.For(snap, w, r.Now) is { } advice) sb.Append(advice.Line).Append(". ").Append(advice.Reason).Append('\n');
+            if (ModelAdvice.For(snap, w, r.Now) is { } advice) sb.Append(advice.Short).Append(": ").Append(advice.Reason).Append('\n');
         if (s.Forecast && Display.Forecast(r.RunsOutFor(snap.Provider), r.Now, s.Fill) is { Length: > 0 } f) sb.Append(f).Append('\n');
         if (snap.AsOf is { } at) sb.Append("Updated ").Append(Fmt.Age(at, r.Now)).Append('\n');
         if (snap.Source.Length > 0) sb.Append('\n').Append(snap.Source);
@@ -390,8 +390,8 @@ public sealed class WidgetView : UserControl
             // When the model's own limit is the main gauge, its advice sits right under it.
             if (ModelAdvice.For(snap, p, r.Now) is { } lead)
             {
-                var line = AdviceLine(lead);
-                Tip(line, lead.Line + ". " + lead.Reason);
+                var line = AdviceLine(lead, 0);
+                Tip(line, lead.Reason);
                 _bars.Children.Add(line);
             }
             foreach (var w in snap.Windows)
@@ -428,45 +428,25 @@ public sealed class WidgetView : UserControl
                 return g;
             }
 
-            // The part of the allowance the week has no room for is closed off at the bar's far end.
-            // (A bar that drains shows what can still be used instead.)
-            if (s.Fill == FillMode.Used) bar.Blocked = advice.Lost;
-            else
-            {
-                bar.Value = advice.LeftToUse;
-                value.Text = Fmt.Pct(advice.LeftToUse) + "%";
-            }
             var both = new StackPanel();
             both.Children.Add(g);
-            both.Children.Add(AdviceLine(advice));
-            Tip(both, Display.Line(w, r.Now, s) + "\n" + advice.Line + ". " + advice.Reason);
+            both.Children.Add(AdviceLine(advice, 50));
+            Tip(both, Display.Line(w, r.Now, s) + "\n" + advice.Reason);
             return both;
         }
 
-        // A model with its own share of the week: how much of it can still be used, and what to do.
-        static Control AdviceLine(ModelAdvice advice)
+        // A model with its own share of the week: a dot and a few words on whether to use it now.
+        static Control AdviceLine(ModelAdvice advice, double indent)
         {
-            var tone = advice.Call switch
-            {
-                ModelCall.Plenty => Brand.Solid(Palette.Green),
-                ModelCall.Only => Brand.Solid(Palette.Amber),
-                _ => Brand.Fg3Brush,
-            };
-            // Under the label, the full width of the row: the words must fit the card.
-            var line = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), Margin = new Thickness(0, 3, 0, 0) };
+            var tone = advice.Call == ModelCall.UseNow ? Brand.Solid(Palette.Green) : Brand.Fg3Brush;
+            var line = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, Margin = new Thickness(indent, 3, 0, 0) };
             line.Children.Add(new Ellipse
             {
-                Width = 6, Height = 6, Margin = new Thickness(1, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center,
+                Width = 6, Height = 6, VerticalAlignment = VerticalAlignment.Center,
                 Fill = advice.Call == ModelCall.Done ? null : tone,
                 Stroke = advice.Call == ModelCall.Done ? tone : null, StrokeThickness = 1,
             });
-            var words = new TextBlock
-            {
-                Text = advice.Line, FontSize = 10, Foreground = tone, VerticalAlignment = VerticalAlignment.Center,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            };
-            Grid.SetColumn(words, 1);
-            line.Children.Add(words);
+            line.Children.Add(new TextBlock { Text = advice.Short, FontSize = 10, Foreground = tone, VerticalAlignment = VerticalAlignment.Center });
             return line;
         }
     }
