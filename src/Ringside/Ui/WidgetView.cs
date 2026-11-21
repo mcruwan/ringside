@@ -228,8 +228,6 @@ public sealed class WidgetView : UserControl
         sb.Append('\n');
         if (snap.Windows.Count == 0) sb.Append(snap.Note ?? "No data yet").Append('\n');
         foreach (var w in snap.Windows) sb.Append(Display.Line(w, r.Now, s)).Append('\n');
-        foreach (var w in snap.Windows)
-            if (ModelAdvice.For(snap, w, r.Now) is { } advice) sb.Append(advice.Short).Append(": ").Append(advice.Reason).Append('\n');
         if (s.Forecast && Display.Forecast(r.RunsOutFor(snap.Provider), r.Now, s.Fill) is { Length: > 0 } f) sb.Append(f).Append('\n');
         if (snap.AsOf is { } at) sb.Append("Updated ").Append(Fmt.Age(at, r.Now)).Append('\n');
         if (snap.Source.Length > 0) sb.Append('\n').Append(snap.Source);
@@ -387,15 +385,8 @@ public sealed class WidgetView : UserControl
             string reset = Fmt.Reset(p, r.Now, s.Resets);
             _primary.Text = reset.Length == 0 ? p.Label : $"{p.Label} · {reset}";
 
-            // When the model's own limit is the main gauge, its advice sits right under it.
-            if (ModelAdvice.For(snap, p, r.Now) is { } lead)
-            {
-                var line = AdviceLine(lead, 0);
-                Tip(line, lead.Reason);
-                _bars.Children.Add(line);
-            }
             foreach (var w in snap.Windows)
-                if (!ReferenceEquals(w, p)) _bars.Children.Add(BarRow(snap, w, r, s));
+                if (!ReferenceEquals(w, p)) _bars.Children.Add(BarRow(w, r, s));
 
             string forecast = s.Forecast ? Display.Forecast(r.RunsOutFor(_p), r.Now, s.Fill) : "";
             _forecastText.Text = forecast;
@@ -405,7 +396,7 @@ public sealed class WidgetView : UserControl
             _note.IsVisible = !string.IsNullOrEmpty(snap.Note);
         }
 
-        Control BarRow(Snapshot snap, LimitWindow w, Reading r, Settings s)
+        Control BarRow(LimitWindow w, Reading r, Settings s)
         {
             var g = new Grid { ColumnDefinitions = new ColumnDefinitions("50,*,Auto"), Margin = new Thickness(0, 6, 0, 0) };
             var label = new TextBlock { Text = w.Label, FontSize = 10.5, Foreground = Brand.Fg2Brush, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
@@ -422,32 +413,8 @@ public sealed class WidgetView : UserControl
             g.Children.Add(label);
             g.Children.Add(bar);
             g.Children.Add(value);
-            if (ModelAdvice.For(snap, w, r.Now) is not { } advice)
-            {
-                Tip(g, Display.Line(w, r.Now, s));
-                return g;
-            }
-
-            var both = new StackPanel();
-            both.Children.Add(g);
-            both.Children.Add(AdviceLine(advice, 50));
-            Tip(both, Display.Line(w, r.Now, s) + "\n" + advice.Reason);
-            return both;
-        }
-
-        // A model with its own share of the week: a dot and a few words on whether to use it now.
-        static Control AdviceLine(ModelAdvice advice, double indent)
-        {
-            var tone = advice.Call == ModelCall.UseNow ? Brand.Solid(Palette.Green) : Brand.Fg3Brush;
-            var line = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, Margin = new Thickness(indent, 3, 0, 0) };
-            line.Children.Add(new Ellipse
-            {
-                Width = 6, Height = 6, VerticalAlignment = VerticalAlignment.Center,
-                Fill = advice.Call == ModelCall.Done ? null : tone,
-                Stroke = advice.Call == ModelCall.Done ? tone : null, StrokeThickness = 1,
-            });
-            line.Children.Add(new TextBlock { Text = advice.Short, FontSize = 10, Foreground = tone, VerticalAlignment = VerticalAlignment.Center });
-            return line;
+            Tip(g, Display.Line(w, r.Now, s));
+            return g;
         }
     }
 

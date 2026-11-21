@@ -14,13 +14,6 @@ public sealed record LimitWindow(string Label, double Percent, DateTimeOffset? R
     /// main gauge while a real limit is there, and it raises no alerts.
     /// </summary>
     public bool Aside { get; init; }
-
-    /// <summary>
-    /// For a limit on one model: how large its allowance is, as a percent of the weekly limit
-    /// (50 = half the week may go to this model). Its own percent is measured against that
-    /// allowance, and what it uses counts against the weekly limit too. See ModelAdvice.
-    /// </summary>
-    public double? ShareOfWeek { get; init; }
 }
 
 public sealed record Snapshot(
