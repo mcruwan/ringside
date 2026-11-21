@@ -25,6 +25,29 @@ public sealed class ClaudeSource
     readonly string? _logOverride;
     readonly string[]? _feedOverride;
 
+    // Which account this source reads: its name on the meter, the Claude app's data folder and
+    // the Claude Code feed file. The defaults are the one account Ringside has always read.
+    string _provider = "Claude";
+    string _appFolder = "Claude";
+    string _feedFile = StatusLineBridge.DefaultFeedFile;
+    bool IsDefaultAccount => _appFolder == "Claude" && _feedFile == StatusLineBridge.DefaultFeedFile;
+
+    /// <summary>
+    /// Another Claude account on this computer: a second copy of the Claude app with its own data
+    /// folder (for one, ~/Library/Application Support/Claude-Company) and Claude Code with its own
+    /// config folder (CLAUDE_CONFIG_DIR, for one ~/.claude-company), shown as its own meter.
+    /// </summary>
+    public static ClaudeSource ForAccount(string provider, string appFolder, string configDir)
+    {
+        var s = new ClaudeSource();
+        s._provider = provider;
+        s._appFolder = appFolder;
+        s._feedFile = StatusLineBridge.FeedFileFor(configDir, Paths.Home);
+        return s;
+    }
+
+    public string Provider => _provider;
+
     sealed record Sample(DateTimeOffset T, string Org, double? FiveHour, double? Weekly);
     sealed record Reading(IReadOnlyList<LimitWindow> Windows, DateTimeOffset AsOf);
 
@@ -57,10 +80,12 @@ public sealed class ClaudeSource
         var feed = FromFeed(now);
 
         if (desktop is null && feed is null)
-            return Snapshot.Empty("Claude", "Waiting for the Claude app or Claude Code", DesktopText);
+            return Snapshot.Empty(_provider, IsDefaultAccount
+                ? "Waiting for the Claude app or Claude Code"
+                : $"Waiting for {_provider}: its Claude app or Claude Code", DesktopText);
 
         if (feed is not null && (desktop is null || feed.AsOf >= desktop.AsOf))
-            return new Snapshot("Claude", null, feed.Windows, feed.AsOf, TimeSpan.FromMinutes(60), null, FeedText);
+            return new Snapshot(_provider, null, feed.Windows, feed.AsOf, TimeSpan.FromMinutes(60), null, FeedText);
 
         var windows = desktop!.Windows.ToList();
         if (feed is not null)
@@ -81,29 +106,30 @@ public sealed class ClaudeSource
         // The Claude app only writes its log while its own usage card refreshes, which can be a day
         // apart. Say so, rather than showing an old number as if it were current.
         string? note = now - desktop.AsOf > TimeSpan.FromMinutes(35) ? StaleText : null;
-        return new Snapshot("Claude", null, windows, desktop.AsOf, TimeSpan.FromMinutes(35), note, DesktopText);
+        return new Snapshot(_provider, null, windows, desktop.AsOf, TimeSpan.FromMinutes(35), note, DesktopText);
     }
 
     // ---- the Claude desktop app's usage log ------------------------------------------
 
-    static IEnumerable<string> LogCandidates()
+    IEnumerable<string> LogCandidates()
     {
         const string LogName = "plan-usage-history.json";
         if (OperatingSystem.IsMacOS())
         {
-            yield return Path.Combine(Paths.Home, "Library", "Application Support", "Claude", LogName);
+            yield return Path.Combine(Paths.Home, "Library", "Application Support", _appFolder, LogName);
             yield break;
         }
         if (!OperatingSystem.IsWindows())
         {
-            yield return Path.Combine(Paths.XdgConfig, "Claude", LogName);
+            yield return Path.Combine(Paths.XdgConfig, _appFolder, LogName);
             yield break;
         }
 
         string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        yield return Path.Combine(roaming, "Claude", LogName);
+        yield return Path.Combine(roaming, _appFolder, LogName);
 
         // Store (MSIX) installs keep their roaming data inside the package folder.
+        if (!IsDefaultAccount) yield break;
         foreach (var r in Paths.ClaudeStoreRoaming())
             yield return Path.Combine(r, "Claude", LogName);
     }
@@ -208,12 +234,12 @@ public sealed class ClaudeSource
     // Claude Code run inside the Claude app from the Store saves the feed into the app's own copy
     // of Ringside's folder whenever that copy exists (see Paths.ClaudeStoreRoaming), and Ringside
     // started from Windows never sees it there. So look in every copy; the one written last is current.
-    static IEnumerable<string> FeedCandidates()
+    IEnumerable<string> FeedCandidates()
     {
-        yield return Paths.StatusLineFeed;
+        yield return Path.Combine(Paths.Data, _feedFile);
         if (Paths.Sandboxed) yield break;
         foreach (var r in Paths.ClaudeStoreRoaming())
-            yield return Path.Combine(r, "Ringside", "claude-statusline.json");
+            yield return Path.Combine(r, "Ringside", _feedFile);
     }
 
     string? ResolveFeed(DateTimeOffset now)

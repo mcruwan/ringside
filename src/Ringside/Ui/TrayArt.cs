@@ -58,6 +58,7 @@ public static class TrayArt
         }
         var parts = new System.Collections.Generic.List<string>();
         if (s.ShowClaude) parts.Add(Part("Claude"));
+        if (s.ShowClaudeWork) parts.Add(Part(Settings.ClaudeWorkName));
         if (s.ShowCodex) parts.Add(Part("Codex"));
         return "Ringside: " + string.Join(" · ", parts);
     }

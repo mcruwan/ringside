@@ -477,7 +477,8 @@ public sealed class WidgetView : UserControl
         {
             _providers = providers;
             bool both = providers.Count > 1;
-            Diameter = both ? 132 : 100;
+            // A third ring (a second Claude account) needs room for three numbers in the middle.
+            Diameter = providers.Count > 2 ? 168 : both ? 132 : 100;
             const double thick = 10, gap = 6;
             var grid = new Grid { Width = Diameter, Height = Diameter, Background = Brushes.Transparent };
             for (int i = 0; i < providers.Count; i++)

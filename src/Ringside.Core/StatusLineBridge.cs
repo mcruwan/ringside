@@ -14,6 +14,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace Ringside;
 
@@ -76,11 +77,31 @@ public static class StatusLineBridge
         if (outObj.Count == 1) return null;
 
         Directory.CreateDirectory(DataDir);
-        var path = Path.Combine(DataDir, "claude-statusline.json");
+        var path = Path.Combine(DataDir, FeedFileFor(Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR"),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
         var tmp = path + "." + Environment.ProcessId + ".tmp";
         File.WriteAllText(tmp, outObj.ToJsonString());
         File.Move(tmp, path, overwrite: true);
         return outObj;
+    }
+
+    public const string DefaultFeedFile = "claude-statusline.json";
+
+    /// <summary>
+    /// The feed file for the Claude Code config folder a reading came from, so two Claude accounts
+    /// kept in two config folders never write over each other's limits. No CLAUDE_CONFIG_DIR, or
+    /// the default ~/.claude, keeps the original name; any other folder adds its name:
+    /// ~/.claude-company gives claude-statusline-claude-company.json. The plugin's register.js
+    /// applies the same rule; a test holds them together.
+    /// </summary>
+    public static string FeedFileFor(string? configDir, string home)
+    {
+        string clean = (configDir ?? "").Trim().TrimEnd('/', '\\');
+        if (clean.Length == 0 || clean == home.TrimEnd('/', '\\') + "/.claude") return DefaultFeedFile;
+        int cut = clean.LastIndexOfAny(new[] { '/', '\\' });
+        string name = (cut >= 0 ? clean[(cut + 1)..] : clean).TrimStart('.').ToLowerInvariant();
+        string slug = Regex.Replace(name, "[^a-z0-9-]+", "-").Trim('-');
+        return slug.Length == 0 || slug == "claude" ? DefaultFeedFile : $"claude-statusline-{slug}.json";
     }
 
     static bool TryNumber(JsonNode? node, out double value)

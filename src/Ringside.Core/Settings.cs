@@ -53,6 +53,16 @@ public sealed class Settings
 
     public bool ShowClaude { get; set; } = true;
     public bool ShowCodex { get; set; } = true;
+
+    // ---- a second Claude account (off until turned on) ---------------------------------------
+    // Its own meter, "Claude Work": read from a second copy of the Claude app with its own data
+    // folder and from Claude Code run with its own config folder (CLAUDE_CONFIG_DIR).
+    public bool ShowClaudeWork { get; set; }
+    public string ClaudeWorkColor { get; set; } = Palette.ClaudeWorkDefault;
+    /// <summary>The second Claude app's data folder, by name, beside the first one's "Claude".</summary>
+    public string ClaudeWorkAppFolder { get; set; } = "Claude-Company";
+    /// <summary>Claude Code's config folder for that account, relative to the home folder or absolute.</summary>
+    public string ClaudeWorkConfigDir { get; set; } = ".claude-company";
     public double Scale { get; set; } = 1.0;
     public double Opacity { get; set; } = 1.0;
 
@@ -114,16 +124,35 @@ public sealed class Settings
         Opacity = Math.Clamp(Opacity, 0.4, 1.0);
         WarnAt = Math.Clamp(Math.Round(WarnAt), 30, 90);
         AlertAt = Math.Clamp(Math.Round(AlertAt), WarnAt + 5, 99);
-        if (!ShowClaude && !ShowCodex) ShowClaude = ShowCodex = true;
+        if (!ShowClaude && !ShowCodex && !ShowClaudeWork) ShowClaude = ShowCodex = true;
         if (!Palette.TryParse(ClaudeColor, out _)) ClaudeColor = Palette.ClaudeDefault;
         if (!Palette.TryParse(CodexColor, out _)) CodexColor = Palette.CodexDefault;
+        if (!Palette.TryParse(ClaudeWorkColor, out _)) ClaudeWorkColor = Palette.ClaudeWorkDefault;
+        if (string.IsNullOrWhiteSpace(ClaudeWorkAppFolder)) ClaudeWorkAppFolder = "Claude-Company";
+        if (string.IsNullOrWhiteSpace(ClaudeWorkConfigDir)) ClaudeWorkConfigDir = ".claude-company";
         // Splitting only means something with two meters.
         if (!(ShowClaude && ShowCodex)) Split = false;
     }
 
-    public string ColorOf(string provider) => provider == "Codex" ? CodexColor : ClaudeColor;
+    public const string ClaudeWorkName = "Claude Work";
 
-    public bool Shows(string provider) => provider == "Codex" ? ShowCodex : ShowClaude;
+    public string ColorOf(string provider) => provider switch
+    {
+        "Codex" => CodexColor,
+        ClaudeWorkName => ClaudeWorkColor,
+        _ => ClaudeColor,
+    };
+
+    public bool Shows(string provider) => provider switch
+    {
+        "Codex" => ShowCodex,
+        ClaudeWorkName => ShowClaudeWork,
+        _ => ShowClaude,
+    };
+
+    /// <summary>The second account's Claude Code config folder as a full path.</summary>
+    public string ClaudeWorkConfigPath =>
+        Path.IsPathRooted(ClaudeWorkConfigDir) ? ClaudeWorkConfigDir : Path.Combine(Paths.Home, ClaudeWorkConfigDir.TrimStart('~', '/'));
 
     public Settings Clone() => JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(this, Json), Json)!;
 

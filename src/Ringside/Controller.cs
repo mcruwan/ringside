@@ -22,6 +22,8 @@ public sealed class Controller : IHost
     Settings _s = new();
     readonly ClaudeSource _claude = new();
     readonly CodexSource _codex = new();
+    ClaudeSource? _claudeWork;
+    string _claudeWorkKey = "";
     readonly UsageHistory _history = new();
     readonly Alerts _alerts = new();
     Updates _updates = null!;
@@ -29,7 +31,7 @@ public sealed class Controller : IHost
     TrayIcon? _tray;
     Reading? _last;
     bool _busy, _hidden, _started, _quitting;
-    (bool Split, bool Claude, bool Codex) _layout;
+    (bool Split, bool Claude, bool ClaudeWork, bool Codex) _layout;
     SettingsWindow? _settingsWin;
     OnboardingWindow? _onboarding;
     QuickPanel? _panel;
@@ -126,11 +128,12 @@ public sealed class Controller : IHost
     {
         foreach (var w in _widgets.ToList()) { w.Close(); }
         _widgets.Clear();
-        _layout = (_s.Split, _s.ShowClaude, _s.ShowCodex);
+        _layout = (_s.Split, _s.ShowClaude, _s.ShowClaudeWork, _s.ShowCodex);
         bool hint = !_s.HintShown;
         if (_s.Split && _s.ShowClaude && _s.ShowCodex)
         {
-            var claude = NewWidget("Claude", new[] { "Claude" }, hint);
+            // Split apart, the second Claude account stays with the first.
+            var claude = NewWidget("Claude", new[] { "Claude", Settings.ClaudeWorkName }.Where(_s.Shows).ToArray(), hint);
             var codex = NewWidget("Codex", new[] { "Codex" }, false);
             claude.Place(_s.ClaudeX is null ? at : null);
             if (_s.CodexX is null)
@@ -147,7 +150,7 @@ public sealed class Controller : IHost
         }
         else
         {
-            var providers = new[] { "Claude", "Codex" }.Where(_s.Shows).ToArray();
+            var providers = new[] { "Claude", Settings.ClaudeWorkName, "Codex" }.Where(_s.Shows).ToArray();
             NewWidget("Both", providers, hint).Place(at);
         }
         if (_hidden) foreach (var w in _widgets) w.Hide();
@@ -184,6 +187,19 @@ public sealed class Controller : IHost
         ToggleSplit(other.Position);
     }
 
+    /// <summary>The second Claude account's source while its meter is on; made again if its folders change.</summary>
+    ClaudeSource? ClaudeWorkSource()
+    {
+        if (!_s.ShowClaudeWork) return null;
+        string key = _s.ClaudeWorkAppFolder + "|" + _s.ClaudeWorkConfigPath;
+        if (_claudeWork is null || key != _claudeWorkKey)
+        {
+            _claudeWork = ClaudeSource.ForAccount(Settings.ClaudeWorkName, _s.ClaudeWorkAppFolder, _s.ClaudeWorkConfigPath);
+            _claudeWorkKey = key;
+        }
+        return _claudeWork;
+    }
+
     public async Task RefreshAsync()
     {
         if (_busy || _quitting) return;
@@ -191,19 +207,20 @@ public sealed class Controller : IHost
         try
         {
             var now = DateTimeOffset.Now;
-            var (claude, codex) = await Task.Run(() => (_claude.Read(now), _codex.Read(now)));
-            _history.Record(claude, now);
-            _history.Record(codex, now);
+            var work = ClaudeWorkSource();
+            var (claude, codex, claudeWork) = await Task.Run(() => (_claude.Read(now), _codex.Read(now), work?.Read(now)));
+            var reading = new Reading(claude, codex, now, new Dictionary<string, DateTimeOffset?>()) { ClaudeWork = claudeWork };
+            foreach (var snap in reading.All()) _history.Record(snap, now);
             var runsOut = new Dictionary<string, DateTimeOffset?>();
-            foreach (var snap in new[] { claude, codex })
+            foreach (var snap in reading.All())
                 runsOut[snap.Provider] = snap.Pick(_s.Focus) is { } w ? _history.RunsOutAt(snap.Provider, w, now) : null;
-            _last = new Reading(claude, codex, now, runsOut);
+            _last = reading with { RunsOut = runsOut };
 
             foreach (var w in _widgets) w.Show(_last);
             _settingsWin?.ShowReading(_last);
             UpdateTrayIcon();
 
-            foreach (var snap in new[] { claude, codex })
+            foreach (var snap in _last.All())
             {
                 if (!_s.Shows(snap.Provider)) continue;
                 foreach (var (title, body) in _alerts.Evaluate(snap, _s, _history, now))
@@ -235,18 +252,20 @@ public sealed class Controller : IHost
     {
         if (_started)
         {
-            var layout = (_s.Split, _s.ShowClaude, _s.ShowCodex);
+            var layout = (_s.Split, _s.ShowClaude, _s.ShowClaudeWork, _s.ShowCodex);
             if (layout != _layout)
             {
                 var at = _widgets.FirstOrDefault()?.Position;
                 BuildWidgets(_s.Split ? null : at);
+                // A meter just turned on has no reading yet.
+                if (_s.ShowClaudeWork && _last?.ClaudeWork is null) _ = RefreshAsync();
             }
             else foreach (var w in _widgets) w.Apply(!_s.HintShown);
             if (_last is not null)
             {
                 // Recompute forecasts if the focused window changed.
                 var runsOut = new Dictionary<string, DateTimeOffset?>();
-                foreach (var snap in new[] { _last.Claude, _last.Codex })
+                foreach (var snap in _last.All())
                     runsOut[snap.Provider] = snap.Pick(_s.Focus) is { } w ? _history.RunsOutAt(snap.Provider, w, _last.Now) : null;
                 _last = _last with { RunsOut = runsOut };
                 foreach (var w in _widgets) w.Show(_last);
@@ -285,7 +304,7 @@ public sealed class Controller : IHost
             _s.Save();
             BuildWidgets();
         }
-        _layout = (_s.Split, _s.ShowClaude, _s.ShowCodex);
+        _layout = (_s.Split, _s.ShowClaude, _s.ShowClaudeWork, _s.ShowCodex);
         ApplyAll();
     }
 
@@ -412,6 +431,7 @@ public sealed class Controller : IHost
         menu.Add(Sub("Show limits as",
             Item("Used (fills up)", () => Change(s => s.Fill = FillMode.Used), _s.Fill == FillMode.Used, true),
             Item("Left (drains like a tank)", () => Change(s => s.Fill = FillMode.Left), _s.Fill == FillMode.Left, true)));
+        menu.Add(Item("Second Claude account (Claude Work)", () => Change(s => s.ShowClaudeWork = !s.ShowClaudeWork), _s.ShowClaudeWork));
         if (_s.ShowClaude && _s.ShowCodex)
             menu.Add(Item(_s.Split ? "Combine into one" : "Split apart", () => ToggleSplit()));
         menu.Add(Item("Keep on top", () => Change(s => s.Topmost = !s.Topmost), _s.Topmost));

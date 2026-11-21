@@ -5,21 +5,36 @@
 // the Ringside meter reads, so the meter stays current in every place Claude Code runs: the
 // terminal, the Claude desktop app's Code tab and the VS Code extension.
 //
-// It reads no credentials, calls no network and touches no other file.
+// It reads no credentials, calls no network and touches no other file. It reads two
+// environment variables to place that file: HOME and CLAUDE_CONFIG_DIR (which account's folder).
 
 let last = ''
 let lastAt = 0
 
+// One feed file per Claude Code config folder, so two Claude accounts kept in two folders
+// never write over each other's limits. No CLAUDE_CONFIG_DIR, or the default ~/.claude, keeps
+// the original name; ~/.claude-company gives claude-statusline-claude-company.json.
+// Same rule as StatusLineBridge.FeedFileFor; a test holds them together.
+function feedFile(configDir, home) {
+  const plain = 'claude-statusline.json'
+  const clean = (configDir || '').trim().replace(/[\\/]+$/, '')
+  if (!clean || clean === `${(home || '').replace(/[\\/]+$/, '')}/.claude`) return plain
+  const name = clean.split(/[\\/]/).pop().replace(/^\.+/, '').toLowerCase()
+  const slug = name.replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '')
+  return !slug || slug === 'claude' ? plain : `claude-statusline-${slug}.json`
+}
+
 async function feedPath($) {
-  const custom = await $.env.get('RINGSIDE_DATA')
-  if (custom) return `${custom}/claude-statusline.json`
-  const appData = await $.env.get('APPDATA')
-  if (appData) return `${appData}\\Ringside\\claude-statusline.json`
   const home = await $.env.get('HOME')
+  const file = feedFile(await $.env.get('CLAUDE_CONFIG_DIR'), home)
+  const custom = await $.env.get('RINGSIDE_DATA')
+  if (custom) return `${custom}/${file}`
+  const appData = await $.env.get('APPDATA')
+  if (appData) return `${appData}\\Ringside\\${file}`
   if (!home) return null
-  if (await $.fs.exists(`${home}/Library/Application Support`)) return `${home}/Library/Application Support/Ringside/claude-statusline.json`
+  if (await $.fs.exists(`${home}/Library/Application Support`)) return `${home}/Library/Application Support/Ringside/${file}`
   const xdg = await $.env.get('XDG_CONFIG_HOME')
-  return `${xdg || `${home}/.config`}/Ringside/claude-statusline.json`
+  return `${xdg || `${home}/.config`}/Ringside/${file}`
 }
 
 async function publish($, rateLimits) {

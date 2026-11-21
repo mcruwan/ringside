@@ -6,7 +6,23 @@ namespace Ringside.Ui;
 /// <summary>One poll's worth of data: both apps' limits plus each one's pace forecast.</summary>
 public sealed record Reading(Snapshot Claude, Snapshot Codex, DateTimeOffset Now, IReadOnlyDictionary<string, DateTimeOffset?> RunsOut)
 {
-    public Snapshot Of(string provider) => provider == "Codex" ? Codex : Claude;
+    /// <summary>The second Claude account, when its meter is on.</summary>
+    public Snapshot? ClaudeWork { get; init; }
+
+    public Snapshot Of(string provider) => provider switch
+    {
+        "Codex" => Codex,
+        Settings.ClaudeWorkName => ClaudeWork ?? Snapshot.Empty(Settings.ClaudeWorkName, "Waiting for the second Claude account", ""),
+        _ => Claude,
+    };
+
+    /// <summary>Every snapshot in this reading, the second Claude account's when present.</summary>
+    public IEnumerable<Snapshot> All()
+    {
+        yield return Claude;
+        if (ClaudeWork is not null) yield return ClaudeWork;
+        yield return Codex;
+    }
 
     public DateTimeOffset? RunsOutFor(string provider) => RunsOut.TryGetValue(provider, out var t) ? t : null;
 

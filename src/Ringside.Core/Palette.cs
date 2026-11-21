@@ -60,7 +60,16 @@ public static class Palette
 {
     public const string ClaudeDefault = "#D97757";
     public const string CodexDefault = "#19C39C";
+    /// <summary>A second Claude account: Sky, far from Clay, Mint and the amber and red warnings.</summary>
+    public const string ClaudeWorkDefault = "#4EA8F5";
     public const string Brand = "#8B7CF6";
+
+    static string DefaultFor(string provider) => provider switch
+    {
+        "Codex" => CodexDefault,
+        Settings.ClaudeWorkName => ClaudeWorkDefault,
+        _ => ClaudeDefault,
+    };
 
     /// <summary>The swatches offered for each app. Any #RRGGBB also works.</summary>
     public static readonly (string Name, string Hex)[] Swatches =
@@ -118,7 +127,7 @@ public static class Palette
             return level switch { Level.Alert => RedGradient, Level.Warn => AmberGradient, _ => GreenGradient };
         if (s.LevelColors && level == Level.Alert) return RedGradient;
         if (s.LevelColors && level == Level.Warn) return AmberGradient;
-        return Gradient(Parse(s.ColorOf(provider), provider == "Codex" ? CodexDefault : ClaudeDefault));
+        return Gradient(Parse(s.ColorOf(provider), DefaultFor(provider)));
     }
 
     /// <summary>The flat color used for dots, labels and the tray icon.</summary>
@@ -129,6 +138,6 @@ public static class Palette
             return level switch { Level.Alert => Red, Level.Warn => Amber, _ => Green };
         if (s.LevelColors && level == Level.Alert) return Red;
         if (s.LevelColors && level == Level.Warn) return Amber;
-        return Parse(s.ColorOf(provider), provider == "Codex" ? CodexDefault : ClaudeDefault);
+        return Parse(s.ColorOf(provider), DefaultFor(provider));
     }
 }
